@@ -1,0 +1,674 @@
+// This is a Parsing Expression Grammar for Lojban.
+// See http://bford.info/packrat/
+// 
+// All rules have the form:
+// 
+//     name = peg_expression
+// 
+// which means that the grammatical construct "name" is parsed using
+// "peg_expression".  
+// 
+// 1)  Names in lower case are grammatical constructs.
+// 2)  Names in UPPER CASE are selma'o (lexeme) names, and are terminals.
+// 3)  Concatenation is expressed by juxtaposition with no operator symbol.
+// 4)  / represents *ORDERED* alternation (choice).  If the first
+//     option succeeds, the others will never be checked.
+// 5)  ? indicates that the element to the left is optional.
+// 6)  * represents optional repetition of the construct to the left.
+// 7)  + represents one_or_more repetition of the construct to the left.
+// 8)  () serves to indicate the grouping of the other operators.
+//
+// Longest match wins.
+
+// How to compile using Node.js: (Added by Masato Hagiwara)
+
+// // load peg.js and the file system module
+// > var PEG = require("pegjs")
+// > var fs = require("fs")
+// // read peg and build a parser
+// > var camxes_peg = fs.readFileSync("/path/to/camxes.js.peg").toString();
+// > var camxes = PEG.buildParser(camxes_peg, {cache: true});
+// // test it
+// > camxes.parse("ko'a broda");
+// [ 'text',
+//   [ 'text_1',
+//     [ 'paragraphs', [Object] ] ] ]
+// // write to a file
+// > fs.writeFileSync("/path/to/camxes.js", camxes.toSource());
+
+
+// ___ GRAMMAR ___
+
+{
+  var _stressed_vowels = {a: "à", e: "è", i: "ì", o: "ò", u: "ù"};
+  function _dots(arg) {
+    if (arg.match(/^[aeiouàèìòùŭĭyw]/))
+      return "." + arg;
+    return arg;
+  }
+
+  var _g_zoi_delim;
+  
+  function _join(arg)
+  {
+    if (typeof(arg) == "string")
+      return arg;
+    else
+    {
+      var ret = "";
+      for (var v in arg) { ret += _join(arg[v]); }
+      return ret;
+    }
+  }
+  
+  function _word(selmaho, word) {
+    return {selmaho: selmaho, word: _dots(_join(word))};
+  }
+  
+  function _brivla(word) {
+    if (Array.isArray(word))
+      return {selmaho: "BRIVLA", word: options.k && word.join("/") || _join(word), rafsi: word};
+    else
+      return {selmaho: "BRIVLA", word: _join(word)};
+  }
+  
+  function _quote(word, quote) {
+    word.quote = quote;
+    word.single_word = word.word;
+    word.word = "[" + word.word + " " + (quote.word || quote).replace(/[\][{}()<>]/g, "") + "]";
+    return word;
+  }
+  
+  function _elided(selmaho) {
+    return {selmaho: selmaho, word: selmaho.toLowerCase().replace(/h/g, "'"), elided: true};
+  }
+  
+  function _amalgam(word, text) {
+//    if (!word.amalgam)
+//      word.amalgam = [word.word];
+//    else
+//      word.amalgam.push(word.word);
+//    word.word = text;
+    word.structure = text;
+    return word;
+  }
+  
+  function _bracket(array) {
+    if (Array.isArray(array)) {
+      array = array.filter(_empty);
+      if (array.length == 1) return _bracket(array[0]);
+      else return "[" + array.map(_bracket).join(" ") + "]";
+    }
+    
+    if (typeof array == "object" && array.structure)
+      return _bracket(array.structure);
+    
+    if (typeof array == "object" && array.word)
+      return _bracket(array.elided ? array.word.toUpperCase() : array.word);
+    
+    if (typeof array == "string")
+      return array;
+      
+    return "[???]";
+  }
+  
+  function _word_pre(word, pre) {
+    if (pre && pre.length)
+      word.pre = pre;
+    return word;
+  }
+  function _word_post(word, post, sa) {
+    if (post) word.post = post;
+      
+    if (post && post.indicators)
+      _amalgam(word, [word.pre, _shell(word), post.indicators].filter(_empty));
+    else
+      _amalgam(word, [word.pre, _shell(word)].filter(_empty));
+      
+    if (_empty(sa)) word.sa = sa;
+    return word;
+  }
+  
+  function _shell(word) {
+    var ret = {};
+    if (word.structure) ret.structure = word.structure;
+    else if (word.word) ret.word = word.word;
+    if (word.selmaho) ret.selmaho = word.selmaho;
+    if (word.elided) ret.elided = word.elided;
+    return ret;
+  }
+  
+  function _empty(array) {
+    return array && (!Array.isArray(array) || array.length) && array;
+  }
+
+  function _duplicate_evil(thing) { // FIXME this murders kittens
+    return JSON.parse(JSON.stringify(thing));
+  }
+  
+  function _duplicate_less_evil(thing) {
+    var clone = {};
+    Object.keys(thing).forEach(function (a) { clone[a] = thing[a] });
+    return clone;
+  }
+
+  // === ZOI functions === //
+
+  function _zoi_assign_delim(word) {
+    var a = word.word.split(",");
+    if (a.length > 0) _g_zoi_delim = a[a.length - 1];
+    else _g_zoi_delim = "";
+    return word;
+  }
+
+  function _zoi_check_quote(word) {
+    if (Array.isArray(word)) word = _join(word);
+    if (typeof(word) == "object") word = word.word || word.toString();
+    if (!is_string(word)) {
+      alert("ZOI word is not a string");
+      return false;
+    } else {
+      return (word.toLowerCase().replace(/,/gm,"").replace(/h/g, "'") === _g_zoi_delim);
+    }
+  }
+  
+  function _zoi_check_delim(word) {
+    if (Array.isArray(word)) word = _join(word);
+    if (typeof(word) == "object") word = word.word;
+    if (!is_string(word)) {
+      alert("ZOI word is not a string");
+      return false;
+    } else {
+      word = word.split(",");
+      if (word.length > 0) word = word[word.length - 1];
+      else word = "";
+      return (word === _g_zoi_delim);
+    }
+  }
+  
+  function is_string(v) {
+    return typeof v.valueOf() === 'string';
+  }
+}
+
+text = pause? si_clause* expr:(BRIVLA_clause / ZO_clause / LOhU_clause / ZOI_clause / BY_clause / CMAVO_clause)* { return expr }
+
+indicators = expr:UI_clause+ !BU_clause { return expr }
+
+
+// ****************
+// Magic Words
+// ****************
+
+zei_clause = pre:pre_clause post:zei_clause_no_pre { post.pre = pre; post.structure = (post.post ? [pre, _shell(post), post.post.indicators] : [pre, _shell(post)]).filter(_empty); return post }
+
+zei_clause_no_pre = 
+pre:pre_zei_bu 
+bu:(z:zei_tail? b:bu_tail { return {zei_tail: z, bu_tail: b} })* 
+tail:zei_tail 
+post:post_clause {
+  var r = {selmaho: "BRIVLA", word: pre.word, subsumed: [pre], post: post};
+  bu.forEach(function (bu) {
+    if (bu.zei_tail) {
+      r.subsumed = r.subsumed.concat(bu.zei_tail.subsumed);
+      r.word += bu.zei_tail.string;
+    }
+    r.subsumed = r.subsumed.concat(bu.bu_tail.subsumed);
+    r.word += bu.bu_tail.string;
+  });
+  r.subsumed = r.subsumed.concat(tail.subsumed);
+  r.word = "[" + r.word + tail.string + "]";
+  return r;
+}
+// zei_clause_no_SA = pre_zei_bu_no_SA (zei_tail? bu_tail)* zei_tail
+
+bu_clause = pre:pre_clause post:bu_clause_no_pre { post.pre = pre; post.structure = (post.post ? [pre, _shell(post), post.post.indicators] : [pre, _shell(post)]).filter(_empty); return post }
+bu_clause_no_pre = pre:pre_zei_bu zei:(b:bu_tail? z:zei_tail { return {bu_tail: b, zei_tail: z} })* tail:bu_tail post:post_clause {
+  var r = {selmaho: "BY", word: pre.word, subsumed: [pre], post: post };
+  zei.forEach(function (zei) {
+    if (zei.bu_tail) {
+      r.subsumed = r.subsumed.concat(zei.bu_tail.subsumed);
+      r.word += zei.bu_tail.string;
+    }
+    r.subsumed = r.subsumed.concat(zei.zei_tail.subsumed);
+    r.word += zei.zei_tail.string;
+  });
+  r.subsumed = r.subsumed.concat(tail.subsumed);
+  r.word = "[" + r.word + tail.string + "]";
+  return r;
+}
+// bu_clause_no_SA = pre_zei_bu_no_SA (bu_tail? zei_tail)* bu_tail
+
+zei_tail = expr:(ZEI_clause any_word)+ {
+  var r = {string: "", subsumed: []};
+  expr.forEach(function (pair) {
+    r.string += " zei " + pair[1].word;
+    r.subsumed.push(pair[0]);
+    r.subsumed.push(pair[1]);
+  });
+  return r;
+}
+bu_tail = expr:BU_clause+ {
+  return {
+    subsumed: expr,
+    string: expr.reduce(function(a, b) { return a + " " + b.word }, "")
+  }
+}
+
+pre_zei_bu = !BU_clause !ZEI_clause !SI_clause !SA_clause word:any_word_SA_handling si:si_clause? {
+  if (si) word.si = si;
+  return word;
+}
+
+dot_star = expr:(.*) { ret = ""; for (i in expr) ret += (expr[i] === " ") ? "_" : expr[i]; return ret; }
+
+// __ General Morphology Issues
+//
+// 1.  Spaces (including '.y') and UI are eaten *after* a word.
+//
+// 3.  BAhE is eaten *before* a word.
+
+// Handling of what can go after a cmavo
+//post_clause = expr:(spaces? si_clause? !ZEI_clause !BU_clause indicators*) {return _node_nonempty("post_clause", expr); }
+
+post_clause = spaces? si:si_clause? !ZEI_clause !BU_clause indicators:indicators? {
+  var r = {};
+  if (si) r.si = si;
+  if (indicators) r.indicators = indicators;
+  return (r.si || r.indicators) && r;
+}
+indicator_post_clause = !BU_clause spaces? si_clause? !ZEI_clause !BU_clause
+
+pre_clause = BAhE_clause*
+
+any_word_SA_handling = BRIVLA_pre / BAhE_pre / BU_pre / BY_pre / LOhU_pre / SA_pre / ZO_pre / ZOI_pre / CMAVO_pre
+
+// Handling of spaces and things like spaces.
+// ___ SPACE ___
+// Do *NOT* delete the line above!
+
+// SU clauses
+su_clause = (erasable_clause / su_word)* SU_clause 
+
+// Handling of SI and interactions with zo and lo'u...le'u
+
+si_clause = ((erasable_clause / si_word / SA_clause) si_clause? SI_clause)+
+
+erasable_clause = expr:(bu_clause_no_pre !ZEI_clause !BU_clause / zei_clause_no_pre !ZEI_clause !BU_clause) {return {"erasable": expr}; }
+
+sa_word = pre_zei_bu
+
+si_word = pre_zei_bu
+
+su_word = !SU_clause any_word_SA_handling
+
+
+
+
+// ___ SELMAHO ___
+// Do *NOT* delete the line above!
+
+BRIVLA_clause = (pre:BRIVLA_pre post:post_clause { return _word_post(pre, post) }) / zei_clause
+BRIVLA_pre = pre:pre_clause word:(BRIVLA) spaces? { return _word_pre(word, pre) }
+
+CMAVO_clause = pre:CMAVO_pre post:post_clause { return _word_post(pre, post) }
+CMAVO_pre = pre:pre_clause word:CMAVO spaces? { return _word_pre(word, pre) }
+
+//         next word intensifier 
+BAhE_clause = pre:BAhE_pre post:BAhE_post { if (post) pre.si = post; return pre }
+BAhE_pre = word:BAhE spaces? { return _word_pre(word, null) }
+BAhE_post = si:si_clause? !ZEI_clause !BU_clause { return si }
+
+//         turns any word into a BY lerfu word 
+BU_clause = pre:BU_pre post:BU_post { return _word_post(pre, post) }
+BU_pre = pre:pre_clause word:BU spaces? { return _word_pre(word, pre) }
+BU_post = spaces?
+
+//         individual lerfu words 
+BY_clause = (pre:BY_pre post:post_clause { return _word_post(pre, post) }) / bu_clause
+BY_pre = pre:pre_clause word:BY spaces? { return _word_pre(word, pre) }
+
+//         possibly ungrammatical text right quote 
+LEhU_clause = pre:LEhU_pre post:LEhU_post { return _word_post(pre, post) }
+LEhU_pre = pre:pre_clause word:LEhU spaces? { return _word_pre(word, pre) }
+LEhU_post = spaces?
+
+//         possibly ungrammatical text left quote 
+LOhU_clause = pre:LOhU_pre post:post_clause { return _word_post(pre, post) }
+LOhU_pre = pre:pre_clause word:LOhU spaces? quoted:(!LEhU w:any_word { return w })* subsumed:LEhU_clause spaces? {
+  word.quoted = quoted || [];
+  word.subsumed = subsumed;
+  word.single_word = word.word;
+  word.word = "[" + word.word + " " + quoted.map(_bracket).join(" ") + " " + subsumed.word + "]";
+  return _word_pre(word, pre);
+}
+
+SA_clause = pre:SA_pre post:SA_post { return pre }
+SA_pre = pre:pre_clause word:SA spaces? { return _word_pre(word, pre) }
+SA_post = spaces?
+
+//         metalinguistic single word eraser 
+SI_clause = spaces? word:SI spaces? { return word }
+
+//         metalinguistic eraser of the entire text 
+SU_clause = pre:SU_pre post:post_clause { return _word_post(pre, post) }
+SU_pre = pre:pre_clause word:SU spaces? { return _word_pre(word, pre) }
+
+//         attitudinals, observationals, discursives 
+UI_clause = pre:UI_pre post:indicator_post_clause { return _word_post(pre, post) }
+UI_pre = pre:pre_clause word:UI spaces? { return _word_pre(word, pre) }
+
+
+//         hesitation 
+// Very very special case.  Handled in the morphology section.
+// Y_clause = spaces? Y spaces?
+
+//         lujvo glue 
+ZEI_clause = pre:ZEI_pre post:ZEI_post { return pre }
+ZEI_pre = pre:pre_clause word:ZEI spaces? { return _word_pre(word, pre) }
+ZEI_post = spaces?
+
+//         single word metalinguistic quote marker 
+ZO_clause = pre:ZO_pre post:post_clause { return _word_post(pre, post) }
+ZO_pre = pre:pre_clause word:ZO spaces? quoted:any_word spaces? {
+  return _word_pre(_quote(word, quoted), pre)
+}
+
+//         delimited quote marker 
+ZOI_clause = pre:ZOI_pre post:post_clause { return _word_post(pre, post) }
+ZOI_pre = pre:pre_clause word:ZOI spaces? open:zoi_open spaces? quoted:zoi_word* close:zoi_close spaces? {
+  word.subsumed = [open, close];
+  word.quoted = quoted || [];
+  word.quoted.word = _join(word.quoted);
+  word.single_word = word.word;
+  word.word = "[" + word.word + " " + open.word + " " + word.quoted.word + " " + close.word + "]";
+  return _word_pre(word, pre)
+}
+
+
+// ___ MORPHOLOGY ___
+
+BRIVLA = expr:(brivla / cmevla) { return _word("BRIVLA", expr) }
+CMAVO = BAhE / BU / BY / LEhU / LOhU / SA / SI / SU / UI / ZEI / ZO / ZOI / expr:cmavo { return _word("CMAVO", expr) }
+
+// This is a Parsing Expression Grammar for the morphology of Lojban.
+// See http://www.pdos.lcs.mit.edu/~baford/packrat/
+//
+// All rules have the form
+//
+// name = peg_expression
+//
+// which means that the grammatical construct "name" is parsed using
+// "peg_expression".
+//
+// 1) Concatenation is expressed by juxtaposition with no operator symbol.
+// 2) / represents *ORDERED* alternation (choice). If the first
+// option succeeds, the others will never be checked.
+// 3) ? indicates that the element to the left is optional.
+// 4) * represents optional repetition of the construct to the left.
+// 5) + represents one_or_more repetition of the construct to the left.
+// 6) () serves to indicate the grouping of the other operators.
+// 7) & indicates that the element to the right must follow (but the
+// marked element itself does not absorb anything).
+// 8) ! indicates that the element to the right must not follow (the
+// marked element itself does not absorb anything).
+// 9) . represents any character.
+// 10) ' ' or " " represents a literal string.
+// 11) [] represents a character class.
+//
+// Repetitions grab as much as they can.
+//
+//
+// ___ GRAMMAR ___
+// This grammar classifies words by their morphological class (cmevla,
+// gismu, lujvo, fuhivla, cmavo, and non_lojban_word).
+//
+//The final section sorts cmavo into grammatical classes (A, BAI, BAhE, ..., ZOhU).
+//
+// mi'e ((xorxes))
+
+//___________________________________________________________________
+
+// words = expr:(pause? (word pause?)*) { return _join(expr); }
+
+// word = expr:lojban_word / non_lojban_word { return expr; }
+
+// lojban_word = expr:(cmevla / cmavo / brivla) { return expr; }
+lojban_word = expr:(CMAVO / BRIVLA) { return expr; }
+
+any_word = expr:lojban_word spaces? { return expr; }
+
+//// EXP-MODIF: ZOI-fix
+zoi_open = w:lojban_word { return _zoi_assign_delim(w); }
+zoi_word = expr:( w:(non_space+) spaces &{ return (! _zoi_check_quote(w)); } ) {return "";}
+zoi_close = w:any_word &{ return (_zoi_check_delim(w)); }
+
+//___________________________________________________________________
+
+cmevla = expr:(snavla / cipcme) { return ["cmevla", _join(expr)]; }
+
+snavla = ((h / consonant consonant consonant consonant) (nucleus / glide / h / consonant / digit)* &pause)
+cipcme = (any_syllable* !any_syllable (nucleus / glide / h / consonant / digit)+ any_syllable* &pause)
+
+//___________________________________________________________________
+
+cmavo = expr:(!CVCy_lujvo cmavo_form &post_word) { return _join(expr); }
+
+CVCy_lujvo = expr:(consonant unstressed_vowel consonant y any_unstressed_syllable* brivla_core / consonant stressed_vowel consonant y (zihevlas_syllable / final_syllable)) { return _join(expr); }
+
+cmavo_form = expr:(!h !cluster onset (nucleus (h / glide))* (!stressed nucleus / nucleus !cluster) / y+ / digit) { return _join(expr); }
+
+//___________________________________________________________________
+
+brivla = expr:(!cmavo !h unstressed_syllable* brivla_core) { return _join(expr);}
+
+brivla_core = expr:(stressed_syllable unstressed_syllable) { return _join(expr); }
+
+slinkuhi = expr:(!rafsi_string consonant rafsi_string) { return _join(expr); }
+
+rafsi_string = (!gismu !long_rafsi (CVC_rafsi / CCV_rafsi) / CVV_rafsi / gismu / long_rafsi &y)+ &(y / post_word)
+
+//___________________________________________________________________
+
+gismu = expr:((initial_pair stressed_vowel / consonant stressed_vowel consonant) &final_syllable consonant vowel &post_word) { return _join(expr); }
+
+y_rafsi = expr:((long_rafsi / CVC_rafsi) y h?) { return _join(expr); }
+
+hy_rafsi = expr:((long_rafsi vowel / CCV_rafsi / CVV_rafsi) h y h?)
+
+long_rafsi = expr:(initial_pair vowel consonant / consonant vowel consonant consonant) { return _join(expr); }
+
+CVC_rafsi = expr:(consonant vowel consonant) { return _join(expr); }
+
+CCV_rafsi = expr:(initial_pair vowel) { return _join(expr); }
+
+CVV_rafsi = expr:(consonant (vowel h vowel / diphthong)) { return _join(expr); }
+
+//___________________________________________________________________
+
+final_syllable = expr:(onset !y !stressed nucleus !cmevla &post_word) {return _join(expr);}
+
+zihevlas_syllable = expr:(onset !y !stressed nucleus consonant consonant? &pause) {return _join(expr);}
+
+stressed_syllable = expr:(&stressed syllable / syllable &stress) 
+  {return _join(expr).replace(/[aeiou]/, function (a) {return _stressed_vowels[a]});}
+
+stressed_diphthong = expr:(&stressed diphthong / diphthong &stress) {return _join(expr);}
+
+stressed_vowel = expr:(&stressed vowel / vowel &stress) {return _join(expr);}
+
+unstressed_syllable = expr:(!stressed syllable !stress / consonantal_syllable) {return _join(expr);}
+
+unstressed_diphthong = expr:(!stressed diphthong !stress) {return _join(expr);}
+
+unstressed_vowel = expr:(!stressed vowel !stress) {return _join(expr);}
+
+//// FIX: Xorxes' fix for fu'ivla rafsi stress
+stress = expr:((consonant / glide)* h? y? syllable pause) {return _join(expr);}
+
+stressed = expr:(onset comma* [AEIOU]) {return _join(expr);}
+
+any_syllable = expr:(onset nucleus coda? / consonantal_syllable) {return _join(expr);}
+any_unstressed_syllable = expr:(onset nucleus coda? / consonantal_syllable) {return _join(expr);}
+medial_syllable = expr:(onset y coda? / consonantal_syllable) {return _join(expr);}
+
+syllable = expr:(onset !y nucleus coda?) {return _join(expr);}
+
+//// FIX: preventing {bla'ypre} from being a valid lujvo
+consonantal_syllable = expr:(consonant !any_syllable syllabic &any_syllable) {return _join(expr);}
+
+coda = expr:(consonant consonant? &pause / consonant consonant &glide_onset / consonant &(glide_onset / consonantal_syllable)) {return _join(expr);}
+
+onset = expr:(h / consonant? glide / initial) {return _join(expr);}
+
+glide_onset = consonant glide
+
+nucleus = expr:(vowel / diphthong / y !nucleus) {return _join(expr);}
+
+//_________________________________________________________________
+
+glide = expr:(y_glide / w) &nucleus {return expr;}
+
+diphthong = expr:(a / e / i !i / o / u !u) (u !w / i !y_glide) !nucleus {return _join(expr);}
+
+vowel = expr:(a / e / i / o / u) !nucleus {return expr;}
+
+a = comma* [aA] {return "a";}
+
+e = comma* [eE] {return "e";}
+
+i = comma* [iI] {return "i";}
+
+o = comma* [oO] {return "o";}
+
+u = comma* [uU] {return "u";}
+
+y_glide = comma* [yY] &nucleus {return "y";}
+
+y = comma* [yY] !nucleus {return "ə";}
+
+w = comma* [wW] {return "w";}
+
+//___________________________________________________________________
+
+cluster = expr:(consonant consonant+) {return _join(expr);}
+
+initial = expr:(consonant? consonant? consonant?) !consonant !glide {return _join(expr);}
+
+initial_pair = expr:(consonant consonant) !consonant !glide {return _join(expr);}
+
+affricate = expr:(t c / t s / d j / d z) {return _join(expr);}
+
+liquid = expr:(l / r) {return _join(expr);}
+
+sibilant = expr:(c / s !x / (j / z) !n !liquid) {return _join(expr); }
+
+consonant = expr:(voiced / unvoiced / syllabic) {return expr;}
+
+syllabic = expr:(l / m / n / r / q) {return expr;}
+
+voiced = expr:(b / d / g / j / v / z) {return expr;}
+
+unvoiced = expr:(c / f / k / p / s / t / x) {return expr;}
+
+l = comma* [lL] !h !l !affricate {return "l";}
+
+m = comma* [mM] !h !m !t {return "m";}
+
+n = comma* [nN] !h !n !affricate !p !b  {return "n";}
+
+r = comma* [rR] !h !r {return "r";}
+
+q = comma* [qQ] !h !q {return "q";}
+
+b = comma* [bB] !h !b !unvoiced {return "b";}
+
+d = comma* [dD] !h !d !unvoiced {return "d";}
+
+g = comma* [gG] !h !g !unvoiced {return "g";}
+
+v = comma* [vV] !h !v !unvoiced {return "v";}
+
+j = comma* [jJ] !h !j !z !unvoiced {return "j";}
+
+z = comma* [zZ] !h !z !j !unvoiced {return "z";}
+
+s = comma* [sS] !h !s !c !voiced {return "s";}
+
+c = comma* [cC] !h !c !s !voiced {return "c";}
+
+x = comma* [xX] !h !x !voiced {return "x";}
+
+k = comma* [kK] !h !k !voiced {return "k";}
+
+f = comma* [fF] !h !f !voiced {return "f";}
+
+p = comma* [pP] !h !p !voiced !m {return "p";}
+
+t = comma* [tT] !h !t !voiced !m !n !p {return "t";}
+
+h = comma* ['hH] &nucleus {return "'";}
+
+//___________________________________________________________________
+
+digit = expr:(comma* [0123456789] !h !nucleus) {return _join(expr);}
+
+post_word = expr:(pause / !nucleus !slinkuhi !cmevla lojban_word)  {return _join(expr);}
+
+pause = expr:(comma* space_char+ / EOF)  {return _join(expr);}
+
+EOF = expr:(comma* !.)  {return _join(expr);}
+
+comma = [,] {return "";}
+
+non_lojban_word = expr:(!lojban_word non_space+)  {return _join(expr);}
+
+non_space = expr:(!space_char .) {return _join(expr);}
+
+//Unicode_style and escaped chars not compatible with cl_peg
+space_char = [.\t\n\r?!\u0020] {return "";}
+
+// space_char = [.?! ] / space_char1 / space_char2 
+// space_char1 = '    '
+// space_char2 = ''
+
+//___________________________________________________________________
+
+spaces = expr:(!Y initial_spaces)  {return _join(expr);}
+
+initial_spaces = expr:((comma* space_char / !ybu Y)+ EOF? / EOF)  {return _join(expr);}
+
+ybu = expr:(Y space_char* BU)  {return "ybu";}
+
+//___________________________________________________________________
+
+BAhE = &cmavo expr:( b a h e / z a h e ) &post_word {return _word("BAhE", expr);}
+
+BU = &cmavo expr:( b u ) &post_word {return _word("BU", expr);}
+
+//// EXP-MODIF: Adding .uy and .iy (Selpa'i)
+BY = &cmavo expr:(ybu / j o h o / r u h o / g e h o / j e h o / l o h a / n a h a / s e h e / t o h a / g a h e / y h y / b y / c y / d y / f y / g y / j y / k y / l y / m y / n y / p y / r y / s y / t y / v y / x y / z y / u y / i y ) &post_word {return _word("BY", expr);}
+
+LEhU = &cmavo expr:( l e h u ) &post_word {return _word("LEhU", expr);}
+
+LOhU = &cmavo expr:( l o h u ) &post_word {return _word("LOhU", expr);}
+
+SA = &cmavo expr:( s a ) &post_word {return _word("SA", expr);}
+
+SI = &cmavo expr:( s i ) &post_word {return _word("SI", expr);}
+
+//exp. grammar: move {li'o} to SA
+SU = &cmavo expr:( s u ) &post_word {return _word("SU", expr);}
+
+//// EXP-ADD: ko'oi, si'au, o'ai, xe'e, xo'o
+UI = &cmavo expr:( k o h o i / s i h a u / o h a i / x e h e / x o h o / i h a / i e / a h e / u h i / i h o / i h e / a h a / i a / o h i / o h e / e h e / o i / u o / e h i / u h o / a u / u a / a h i / i h u / i i / u h a / u i / a h o / a i / a h u / i u / e i / o h o / e h a / u u / o h a / o h u / u h u / e h o / i o / e h u / u e / i h i / u h e / b a h a / j a h o / c a h e / s u h a / t i h e / k a h u / s e h o / z a h a / p e h i / r u h a / j u h a / t a h o / r a h u / l i h a / b a h u / m u h a / d o h a / t o h u / v a h i / p a h e / z u h u / s a h e / l a h a / k e h u / s a h u / d a h i / j e h u / s a h a / k a u / t a h u / n a h i / j o h a / b i h u / l i h o / p a u / m i h u / k u h i / j i h a / s i h a / p o h o / p e h a / r o h i / r o h e / r o h o / r o h u / r o h a / r e h e / l e h o / j u h o / f u h i / d a i / g a h i / z o h o / b e h u / r i h e / s e h i / s e h a / v u h e / k i h a / x u / g e h e / b u h o ) &post_word {return _word("UI", expr);}
+
+Y = &cmavo expr:( y+ ) &post_word {return _join(expr);}
+
+ZEI = &cmavo expr:( z e i ) &post_word {return _word("ZEI", expr);}
+
+//// EXP-ADD: ma'oi
+ZO = &cmavo expr:( z o / m a h o i ) &post_word {return _word("ZO", expr);}
+
+ZOI = &cmavo expr:( z o i / l a h o ) &post_word {return _word("ZOI", expr);}
+
