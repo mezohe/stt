@@ -460,13 +460,13 @@ cmavo_form = expr:(!h !cluster onset (nucleus (h / glide))* (!stressed nucleus /
 
 //___________________________________________________________________
 
-brivla = expr:(!cmavo !h unstressed_syllable* brivla_core) { return _join(expr);}
+brivla = expr:((&slinkuhi {return "."})? !cmavo !h (unstressed_syllable any_unstressed_syllable*)? brivla_core) { return _join(expr);}
 
-brivla_core = expr:(stressed_syllable unstressed_syllable) { return _join(expr); }
+brivla_core = expr:(stressed_syllable medial_syllable* unstressed_syllable) { return _join(expr); }
 
 slinkuhi = expr:(!rafsi_string consonant rafsi_string) { return _join(expr); }
 
-rafsi_string = (!gismu !long_rafsi (CVC_rafsi / CCV_rafsi) / CVV_rafsi / gismu / long_rafsi &y)+ &(y / post_word)
+rafsi_string = (gismu &post_word / long_rafsi &y / CVC_rafsi / CCV_rafsi / CVV_rafsi)+ &(y / post_word)
 
 //___________________________________________________________________
 
@@ -509,7 +509,7 @@ stress = expr:((consonant / glide)* h? y? syllable pause) {return _join(expr);}
 stressed = expr:(onset comma* [AEIOU]) {return _join(expr);}
 
 any_syllable = expr:(onset nucleus coda? / consonantal_syllable) {return _join(expr);}
-any_unstressed_syllable = expr:(onset nucleus coda? / consonantal_syllable) {return _join(expr);}
+any_unstressed_syllable = expr:(!stressed onset nucleus coda? !stress / consonantal_syllable) {return _join(expr);}
 medial_syllable = expr:(onset y coda? / consonantal_syllable) {return _join(expr);}
 
 syllable = expr:(onset !y nucleus coda?) {return _join(expr);}
@@ -529,7 +529,7 @@ nucleus = expr:(vowel / diphthong / y !nucleus) {return _join(expr);}
 
 glide = expr:(y_glide / w) &nucleus {return expr;}
 
-diphthong = expr:(a / e / i !i / o / u !u) (u !w / i !y_glide) !nucleus {return _join(expr);}
+diphthong = expr:((a / e / i !i / o / u !u) (u !w / i !y_glide)) !nucleus {return _join(expr);}
 
 vowel = expr:(a / e / i / o / u) !nucleus {return expr;}
 

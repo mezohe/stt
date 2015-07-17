@@ -1,6 +1,6 @@
 // // load peg.js and the file system module
-var fs = require("fs")
-var PEG = require("pegjs")
+var fs = require("fs");
+var PEG = require("pegjs");
 // // read peg and build a parser
 var camxes_peg = fs.readFileSync("stt.js.peg").toString();
 var camxes = PEG.buildParser(camxes_peg, {
@@ -17,6 +17,11 @@ var camxes = PEG.buildParser(camxes_peg, {
     "unstressed_syllable",
     "brivla_core",
     "slinkuhi",
+    "rafsi_string",
+    "CCV_rafsi",
+    "CVV_rafsi",
+    "CVC_rafsi",
+    "long_rafsi",
   ],
 });
 // // write to a file
