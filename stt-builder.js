@@ -22,6 +22,7 @@ var camxes = PEG.buildParser(camxes_peg, {
     "CVV_rafsi",
     "CVC_rafsi",
     "long_rafsi",
+    "zihevlas_syllable",
   ],
 });
 // // write to a file

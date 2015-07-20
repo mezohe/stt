@@ -445,7 +445,7 @@ zoi_close = w:any_word &{ return (_zoi_check_delim(w)); }
 
 //___________________________________________________________________
 
-cmevla = expr:(snavla / cipcme) { return ["cmevla", _join(expr)]; }
+cmevla = expr:((snavla / cipcme) (&(pause !glide !nucleus !cmevla) {return "."})?) { return "." + _join(expr) }
 
 snavla = ((h / consonant consonant consonant consonant) (nucleus / glide / h / consonant / digit)* &pause)
 cipcme = (any_syllable* !any_syllable (nucleus / glide / h / consonant / digit)+ any_syllable* &pause)
@@ -462,7 +462,7 @@ cmavo_form = expr:(!h !cluster onset (nucleus (h / glide))* (!stressed nucleus /
 
 brivla = expr:((&slinkuhi {return "."})? !cmavo !h (unstressed_syllable any_unstressed_syllable*)? brivla_core) { return _join(expr);}
 
-brivla_core = expr:(stressed_syllable medial_syllable* unstressed_syllable) { return _join(expr); }
+brivla_core = expr:(stressed_syllable medial_syllable* (zihevlas_syllable / final_syllable)) { return _join(expr); }
 
 slinkuhi = expr:(!rafsi_string consonant rafsi_string) { return _join(expr); }
 
@@ -488,7 +488,7 @@ CVV_rafsi = expr:(consonant (vowel h vowel / diphthong)) { return _join(expr); }
 
 final_syllable = expr:(onset !y !stressed nucleus !cmevla &post_word) {return _join(expr);}
 
-zihevlas_syllable = expr:(onset !y !stressed nucleus consonant consonant? &pause) {return _join(expr);}
+zihevlas_syllable = expr:(onset !y !stressed nucleus consonant consonant? &pause (&(pause !nucleus !glide !cmevla) {return "."})?) {return _join(expr);}
 
 stressed_syllable = expr:(&stressed syllable / syllable &stress) 
   {return _join(expr).replace(/[aeiou]/, function (a) {return _stressed_vowels[a]});}
